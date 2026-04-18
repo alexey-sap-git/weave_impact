@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -si \"http://localhost:8000/api/v1/contributors/rate-limit\")",
+      "Bash(pkill -f \"uvicorn app.main\")",
+      "Bash(python -c \"import sys,json; d=json.load\\(sys.stdin\\); r=d['rate']; print\\(f\\\\\"Remaining: {r['remaining']}/{r['limit']}\\\\\"\\)\")"
+    ]
+  }
+}

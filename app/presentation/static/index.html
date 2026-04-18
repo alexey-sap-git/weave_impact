@@ -1,0 +1,839 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weave Impact — PostHog Contributor Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #21253a;
+      --border: #2d3148;
+      --accent: #f54e00;
+      --accent2: #7c5cfc;
+      --accent3: #1dc9a4;
+      --text: #e8eaf0;
+      --muted: #8891b4;
+      --gold: #f5c842;
+      --silver: #a8b2c8;
+      --bronze: #c97c3a;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: -0.3px;
+    }
+    .logo-icon {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 8px;
+      display: grid; place-items: center;
+      font-size: 16px;
+    }
+    .repo-badge {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .repo-badge a { color: var(--accent); text-decoration: none; }
+    header .spacer { flex: 1; }
+    .controls { display: flex; gap: 10px; align-items: center; }
+    select, button {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 7px 14px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: border-color .15s;
+    }
+    select:hover, button:hover { border-color: var(--accent); }
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      font-weight: 600;
+    }
+    .btn-primary:hover { background: #d94400; border-color: #d94400; }
+    .btn-primary:disabled { opacity: .5; cursor: default; }
+
+    /* ── Layout ── */
+    main { max-width: 1400px; margin: 0 auto; padding: 28px 32px; }
+
+    /* ── Loading / Error ── */
+    #loading, #error {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 60vh;
+      gap: 16px;
+      color: var(--muted);
+    }
+    #loading.show, #error.show { display: flex; }
+    .spinner {
+      width: 48px; height: 48px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .progress-wrap {
+      width: 320px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      height: 8px;
+    }
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 8px;
+      transition: width 0.4s ease;
+      width: 0%;
+    }
+    #progress-pct {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--accent);
+      line-height: 1;
+    }
+    #progress-msg {
+      font-size: 13px;
+      color: var(--muted);
+      min-height: 20px;
+    }
+    #error-msg { color: #ff6b6b; font-size: 15px; text-align: center; max-width: 480px; }
+
+    /* ── Stat cards ── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .stat-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .8px;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .stat-value {
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .stat-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+    /* ── Charts row ── */
+    .charts-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .chart-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .chart-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      margin-bottom: 16px;
+    }
+    .chart-wrap { position: relative; height: 260px; }
+
+    /* ── Tier legend ── */
+    .tier-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .tier-pill {
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: opacity .15s;
+    }
+    .tier-pill.inactive { opacity: .4; }
+
+    /* ── Table ── */
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .table-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .table-header h2 { font-size: 15px; font-weight: 700; }
+    .search-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 13px;
+      width: 220px;
+    }
+    .search-box::placeholder { color: var(--muted); }
+
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      text-align: left;
+      padding: 10px 16px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      background: var(--surface2);
+      cursor: pointer;
+      white-space: nowrap;
+      user-select: none;
+    }
+    th:hover { color: var(--text); }
+    th.sorted { color: var(--accent); }
+    th .sort-arrow { margin-left: 4px; }
+    td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+
+    .rank-cell { font-size: 13px; font-weight: 700; color: var(--muted); width: 48px; }
+    .rank-1 { color: var(--gold); }
+    .rank-2 { color: var(--silver); }
+    .rank-3 { color: var(--bronze); }
+
+    .contributor-cell { display: flex; align-items: center; gap: 10px; }
+    .avatar {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      background: var(--border);
+      flex-shrink: 0;
+    }
+    .contributor-cell a {
+      color: var(--text);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .contributor-cell a:hover { color: var(--accent); }
+
+    .tier-badge {
+      font-size: 10px;
+      font-weight: 700;
+      border-radius: 4px;
+      padding: 2px 7px;
+      white-space: nowrap;
+    }
+
+    .score-cell { font-weight: 700; font-size: 15px; }
+
+    .bar-cell { min-width: 120px; }
+    .bar-bg {
+      background: var(--border);
+      border-radius: 4px;
+      height: 6px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+    }
+
+    .num { font-variant-numeric: tabular-nums; }
+
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 16px;
+      border-top: 1px solid var(--border);
+    }
+    .page-btn {
+      width: 32px; height: 32px;
+      border-radius: 6px;
+      font-size: 13px;
+      display: grid; place-items: center;
+    }
+    .page-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    .source-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 10px;
+    }
+    .source-live { background: #1a3a2a; color: var(--accent3); border: 1px solid #1a4a35; }
+    .source-cache { background: #1a2a3a; color: #5bc0de; border: 1px solid #1a3a4a; }
+
+    @media (max-width: 900px) {
+      .charts-row { grid-template-columns: 1fr; }
+      main { padding: 16px; }
+      header { padding: 12px 16px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">⚡</div>
+    Weave Impact
+  </div>
+  <div class="repo-badge">
+    <a href="https://github.com/PostHog/posthog" target="_blank">PostHog/posthog</a>
+  </div>
+  <div class="spacer"></div>
+  <div class="controls">
+    <span id="source-badge" style="display:none"></span>
+    <label style="color:var(--muted);font-size:12px">Last</label>
+    <select id="days-select">
+      <option value="30">30 days</option>
+      <option value="90" selected>90 days</option>
+      <option value="180">180 days</option>
+    </select>
+    <label style="color:var(--muted);font-size:12px">Top</label>
+    <select id="top-n-select">
+      <option value="25">25</option>
+      <option value="50" selected>50</option>
+      <option value="100">100</option>
+    </select>
+    <button class="btn-primary" id="refresh-btn" onclick="loadData(true)">Refresh</button>
+  </div>
+</header>
+
+<main>
+  <div id="loading">
+    <div class="spinner"></div>
+    <div id="progress-pct">0%</div>
+    <div class="progress-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+    <div id="progress-msg">Connecting…</div>
+  </div>
+
+  <div id="error">
+    <div style="font-size:48px">⚠️</div>
+    <p id="error-msg"></p>
+    <button onclick="loadData(false)" style="margin-top:8px">Retry</button>
+  </div>
+
+  <div id="content" style="display:none">
+
+    <!-- Methodology -->
+    <div class="chart-card" style="margin-bottom:28px">
+      <div class="chart-title">How We Measure Impact</div>
+
+      <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:20px;max-width:860px">
+        Weave Impact ranks contributors by their <span style="color:var(--text);font-weight:600">Knowledge Sharer</span> score —
+        a measure of how much a contributor elevates the quality of other people's work through thoughtful code review.
+        Rather than rewarding raw commit volume or line counts, this model recognises the reviewers who catch real issues,
+        spread knowledge across different parts of the codebase, and help the whole team ship better software.
+      </p>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:4px">
+
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:18px">
+          <div style="font-size:12px;font-weight:700;color:#5bc0de;margin-bottom:12px;text-transform:uppercase;letter-spacing:.6px">🔍 Meaningful Comments — × 1.5 each</div>
+          <p style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:10px">
+            A comment counts as meaningful when it contains more than 30 characters of actual text and is not a stock approval phrase.
+            The goal is to capture comments that carry substance: a bug spotted, an edge case raised, an alternative design proposed,
+            or a clear explanation of why something needs to change.
+          </p>
+          <div style="font-size:11px;color:var(--muted)">
+            Excluded phrases: <code style="color:#5bc0de">LGTM</code> <code style="color:#5bc0de">+1</code> <code style="color:#5bc0de">looks good</code>
+            <code style="color:#5bc0de">approved</code> <code style="color:#5bc0de">nice</code> <code style="color:#5bc0de">ok</code> and similar one-liners
+          </div>
+        </div>
+
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:18px">
+          <div style="font-size:12px;font-weight:700;color:#1dc9a4;margin-bottom:12px;text-transform:uppercase;letter-spacing:.6px">🗺️ Cross-Subsystem Reviews — × 5.0 each</div>
+          <p style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:10px">
+            When a reviewer leaves comments on files that span two or more top-level directories in a single PR, it signals
+            broad architectural awareness — they can reason across the frontend, backend, infra, or data layers at once.
+            This is rare and highly valuable, so it carries the largest weight in the model.
+          </p>
+          <div style="font-size:11px;color:var(--muted)">
+            Example: commenting on both <code style="color:#1dc9a4">frontend/</code> and <code style="color:#1dc9a4">posthog/</code> files
+            in the same PR counts as one cross-subsystem review
+          </div>
+        </div>
+
+      </div>
+
+      <div style="margin-top:20px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:18px">
+        <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:.6px">Tiers — Score Thresholds</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <div style="text-align:center;padding:10px 18px;background:#2a1a3a;border:1px solid #5c2fa0;border-radius:8px">
+            <div style="font-size:13px;font-weight:700;color:#b47eff">Core Maintainer</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:3px">≥ 200 pts</div>
+          </div>
+          <div style="text-align:center;padding:10px 18px;background:#1a2a3a;border:1px solid #1a5a7a;border-radius:8px">
+            <div style="font-size:13px;font-weight:700;color:#5bc0de">Major Contributor</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:3px">≥ 80 pts</div>
+          </div>
+          <div style="text-align:center;padding:10px 18px;background:#1a3a2a;border:1px solid #1a6a4a;border-radius:8px">
+            <div style="font-size:13px;font-weight:700;color:#1dc9a4">Active Contributor</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:3px">≥ 20 pts</div>
+          </div>
+          <div style="text-align:center;padding:10px 18px;background:#2a2a1a;border:1px solid #6a5a10;border-radius:8px">
+            <div style="font-size:13px;font-weight:700;color:#f5c842">Contributor</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:3px">≥ 5 pts</div>
+          </div>
+          <div style="text-align:center;padding:10px 18px;background:#2a1a1a;border:1px solid #6a2a25;border-radius:8px">
+            <div style="font-size:13px;font-weight:700;color:#e8908a">Casual</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:3px">&lt; 5 pts</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);display:flex;gap:24px;flex-wrap:wrap">
+        <div style="font-size:11px;color:var(--muted)">
+          <span style="font-weight:600;color:var(--text)">Data window:</span> PRs and review comments filtered to selected time range · self-reviews always excluded
+        </div>
+        <div style="font-size:11px;color:var(--muted)">
+          <span style="font-weight:600;color:var(--text)">Bots excluded:</span> <code>[bot]</code> suffix · known automation accounts (dependabot, renovate, github-actions…)
+        </div>
+        <div style="font-size:11px;color:var(--muted)">
+          <span style="font-weight:600;color:var(--text)">Source:</span> GitHub REST API v3 · <a href="https://github.com/PostHog/posthog" target="_blank" style="color:var(--accent)">PostHog/posthog</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Stat cards -->
+    <div class="stat-grid" id="stat-grid"></div>
+
+    <!-- Charts -->
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-title">Top 10 — Impact Score</div>
+        <div class="chart-wrap"><canvas id="chart-impact"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">Score Breakdown (Top 10)</div>
+        <div class="chart-wrap"><canvas id="chart-breakdown"></canvas></div>
+      </div>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-card">
+        <div class="chart-title">Tier Distribution</div>
+        <div class="chart-wrap"><canvas id="chart-tier"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-wrap">
+      <div class="table-header">
+        <h2>Contributors <span id="table-count" style="color:var(--muted);font-weight:400;font-size:13px"></span></h2>
+        <input class="search-box" type="text" id="search-box" placeholder="Search contributor…" oninput="onSearch()" />
+      </div>
+      <div class="tier-row" id="tier-filter" style="padding:12px 20px 0"></div>
+      <div style="overflow-x:auto">
+        <table>
+          <thead>
+            <tr id="thead-row"></tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="pagination"></div>
+    </div>
+
+  </div><!-- /content -->
+</main>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let allData = [];
+let filtered = [];
+let sortKey = 'impact.total';
+let sortDir = -1;
+let activeTiers = new Set();
+let searchQuery = '';
+let currentPage = 1;
+const PAGE_SIZE = 20;
+
+const TIER_COLORS = {
+  'Core Maintainer':   { bg:'#2a1a3a', color:'#b47eff', border:'#5c2fa0' },
+  'Major Contributor': { bg:'#1a2a3a', color:'#5bc0de', border:'#1a5a7a' },
+  'Active Contributor':{ bg:'#1a3a2a', color:'#1dc9a4', border:'#1a6a4a' },
+  'Contributor':       { bg:'#2a2a1a', color:'#f5c842', border:'#6a5a10' },
+  'Casual':            { bg:'#2a1a1a', color:'#e8908a', border:'#6a2a25' },
+};
+
+const COLS = [
+  { key: '#',                                    label: '#',            sortable: false, width: '48px' },
+  { key: 'login',                                label: 'Contributor',  sortable: true },
+  { key: 'tier',                                 label: 'Tier',         sortable: true },
+  { key: 'impact.total',                         label: 'Impact ▾',     sortable: true },
+  { key: 'bar',                                  label: '',             sortable: false },
+  { key: 'impact.knowledge_sharer_score',        label: '🔍 Knowledge Sharer', sortable: true },
+  { key: 'knowledge_sharer.meaningful_comments', label: 'Comments',     sortable: true },
+  { key: 'knowledge_sharer.cross_subsystem_prs', label: 'Cross-sys',    sortable: true },
+];
+
+// ── Charts ─────────────────────────────────────────────────────────────────
+let charts = {};
+
+function destroyCharts() {
+  Object.values(charts).forEach(c => c.destroy());
+  charts = {};
+  // Replace canvas elements to fully clear Chart.js state
+  ['chart-impact','chart-breakdown','chart-tier'].forEach(id => {
+    const old = document.getElementById(id);
+    if (!old) return;
+    const fresh = document.createElement('canvas');
+    fresh.id = id;
+    old.replaceWith(fresh);
+  });
+}
+
+function buildCharts(top10) {
+  destroyCharts();
+  const labels = top10.map(d => d.login);
+  const palette = [
+    '#f54e00','#7c5cfc','#1dc9a4','#f5c842','#5bc0de',
+    '#ff8c42','#a370f7','#34d4b0','#f7d060','#7ad4ef',
+  ];
+
+  // Impact bar
+  charts.impact = new Chart(document.getElementById('chart-impact'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data: top10.map(d => d.impact.total),
+        backgroundColor: palette,
+        borderRadius: 6,
+        borderSkipped: false,
+      }]
+    },
+    options: chartOpts('Impact Score', false),
+  });
+
+  // Stacked breakdown (knowledge sharer components)
+  charts.breakdown = new Chart(document.getElementById('chart-breakdown'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: '🔍 Knowledge Sharer', data: top10.map(d => d.impact.knowledge_sharer_score), backgroundColor: '#5bc0de', borderRadius: 3 },
+      ]
+    },
+    options: { ...chartOpts('', false), plugins: { ...chartOpts('', false).plugins, legend: { display: true, labels: { color: '#8891b4', boxWidth: 12 } } } },
+  });
+
+  // Tier donut
+  const tierCounts = {};
+  allData.forEach(d => { tierCounts[d.tier] = (tierCounts[d.tier] || 0) + 1; });
+  const tierLabels = Object.keys(tierCounts);
+  charts.tier = new Chart(document.getElementById('chart-tier'), {
+    type: 'doughnut',
+    data: {
+      labels: tierLabels,
+      datasets: [{
+        data: tierLabels.map(t => tierCounts[t]),
+        backgroundColor: tierLabels.map(t => TIER_COLORS[t]?.color || '#8891b4'),
+        borderWidth: 2,
+        borderColor: '#1a1d27',
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: '60%',
+      plugins: {
+        legend: { position: 'right', labels: { color: '#8891b4', boxWidth: 12, padding: 14 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${ctx.parsed}` } }
+      }
+    }
+  });
+}
+
+function chartOpts(title, legend) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: legend }, title: { display: false } },
+    scales: { x: darkAxis(), y: darkAxis() }
+  };
+}
+function darkAxis() {
+  return { grid: { color: '#2d3148' }, ticks: { color: '#8891b4' }, border: { color: '#2d3148' } };
+}
+
+// ── Stats ──────────────────────────────────────────────────────────────────
+function buildStats(repo, contributors, since, days) {
+  const totalKsScore = contributors.reduce((s, c) => s + c.impact.knowledge_sharer_score, 0);
+  const cards = [
+    { label: 'Repo Stars',         value: fmt(repo.stargazers_count),    sub: repo.language },
+    { label: 'Window',             value: `${days}d`,                    sub: `since ${since}` },
+    { label: 'Contributors',       value: fmt(contributors.length),      sub: 'active in window' },
+    { label: '🔍 Knowledge Score', value: fmt(totalKsScore),             sub: 'total' },
+    { label: 'Top Contributor',    value: contributors[0]?.login || '—', sub: `${fmt(contributors[0]?.impact.total)} pts` },
+  ];
+  document.getElementById('stat-grid').innerHTML = cards.map(c => `
+    <div class="stat-card">
+      <div class="stat-label">${c.label}</div>
+      <div class="stat-value">${c.value}</div>
+      <div class="stat-sub">${c.sub}</div>
+    </div>`).join('');
+}
+
+// ── Table ──────────────────────────────────────────────────────────────────
+function buildTableHeader() {
+  document.getElementById('thead-row').innerHTML = COLS.map(col => {
+    if (!col.sortable) return `<th style="${col.width ? 'width:'+col.width : ''}">${col.label}</th>`;
+    const active = sortKey === col.key;
+    return `<th class="${active ? 'sorted' : ''}" onclick="onSort('${col.key}')">${col.label}<span class="sort-arrow">${active ? (sortDir === -1 ? '↓' : '↑') : ''}</span></th>`;
+  }).join('');
+}
+
+function buildTierFilter() {
+  const tiers = [...new Set(allData.map(d => d.tier))];
+  document.getElementById('tier-filter').innerHTML = tiers.map(t => {
+    const tc = TIER_COLORS[t] || {};
+    const active = activeTiers.size === 0 || activeTiers.has(t);
+    return `<span class="tier-pill ${active ? '' : 'inactive'}"
+      style="background:${tc.bg};color:${tc.color};border-color:${tc.border}"
+      onclick="onTierClick('${t}')">${t}</span>`;
+  }).join('');
+}
+
+function renderTable() {
+  const maxScore = allData[0]?.impact.total || 1;
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const page  = filtered.slice(start, start + PAGE_SIZE);
+
+  document.getElementById('table-count').textContent = `(${filtered.length})`;
+
+  document.getElementById('tbody').innerHTML = page.map(d => {
+    const pct = (d.impact.total / maxScore * 100).toFixed(1);
+    const tc = TIER_COLORS[d.tier] || {};
+    const rankClass = d.rank <= 3 ? `rank-${d.rank}` : '';
+    const bc = d.bug_crusher || {};
+    const ks = d.knowledge_sharer || {};
+    return `<tr>
+      <td class="rank-cell ${rankClass}">${d.rank <= 3 ? ['🥇','🥈','🥉'][d.rank-1] : d.rank}</td>
+      <td>
+        <div class="contributor-cell">
+          <img class="avatar" src="${d.avatar_url}" loading="lazy" onerror="this.src=''" />
+          <a href="${d.html_url}" target="_blank">@${d.login}</a>
+        </div>
+      </td>
+      <td><span class="tier-badge" style="background:${tc.bg};color:${tc.color};border:1px solid ${tc.border}">${d.tier}</span></td>
+      <td class="score-cell num">${fmt(d.impact.total)}</td>
+      <td class="bar-cell">
+        <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
+      </td>
+      <td class="num" style="color:#5bc0de;font-weight:600">${fmt(d.impact.knowledge_sharer_score)}</td>
+      <td class="num">${ks.meaningful_comments ?? 0}</td>
+      <td class="num" style="color:#1dc9a4">${ks.cross_subsystem_prs ?? 0}</td>
+    </tr>`;
+  }).join('');
+
+  renderPagination();
+}
+
+function renderPagination() {
+  const pages = Math.ceil(filtered.length / PAGE_SIZE);
+  if (pages <= 1) { document.getElementById('pagination').innerHTML = ''; return; }
+  let html = '';
+  html += `<button class="page-btn" onclick="goPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>‹</button>`;
+  for (let p = 1; p <= pages; p++) {
+    if (p === 1 || p === pages || Math.abs(p - currentPage) <= 1)
+      html += `<button class="page-btn ${p === currentPage ? 'active' : ''}" onclick="goPage(${p})">${p}</button>`;
+    else if (Math.abs(p - currentPage) === 2)
+      html += `<span style="color:var(--muted)">…</span>`;
+  }
+  html += `<button class="page-btn" onclick="goPage(${currentPage + 1})" ${currentPage === pages ? 'disabled' : ''}>›</button>`;
+  document.getElementById('pagination').innerHTML = html;
+}
+
+// ── Interaction ────────────────────────────────────────────────────────────
+function applyFilters() {
+  filtered = allData.filter(d => {
+    const matchTier = activeTiers.size === 0 || activeTiers.has(d.tier);
+    const matchSearch = !searchQuery || d.login.toLowerCase().includes(searchQuery);
+    return matchTier && matchSearch;
+  });
+  currentPage = 1;
+  renderTable();
+}
+
+function onSort(key) {
+  if (sortKey === key) sortDir *= -1;
+  else { sortKey = key; sortDir = -1; }
+  const getter = key.includes('.') ? (d) => key.split('.').reduce((o, k) => o?.[k], d) : (d) => d[key];
+  allData.sort((a, b) => {
+    const av = getter(a); const bv = getter(b);
+    return (typeof av === 'string' ? av.localeCompare(bv) : av - bv) * sortDir;
+  });
+  buildTableHeader();
+  applyFilters();
+}
+
+function onTierClick(tier) {
+  if (activeTiers.has(tier)) activeTiers.delete(tier);
+  else activeTiers.add(tier);
+  buildTierFilter();
+  applyFilters();
+}
+
+function onSearch() {
+  searchQuery = document.getElementById('search-box').value.trim().toLowerCase();
+  applyFilters();
+}
+
+function goPage(p) {
+  const pages = Math.ceil(filtered.length / PAGE_SIZE);
+  currentPage = Math.max(1, Math.min(p, pages));
+  renderTable();
+}
+
+// ── Data loading ───────────────────────────────────────────────────────────
+function setProgress(pct, msg) {
+  document.getElementById('progress-pct').textContent = `${pct}%`;
+  document.getElementById('progress-bar').style.width = `${pct}%`;
+  document.getElementById('progress-msg').textContent = msg;
+}
+
+function renderResult(json) {
+  allData = json.contributors || [];
+  filtered = [...allData];
+  activeTiers = new Set();
+  searchQuery = '';
+  sortKey = 'impact.total';
+  sortDir = -1;
+
+  const badge = document.getElementById('source-badge');
+  badge.style.display = 'inline-block';
+  badge.className = `source-badge source-${json.source}`;
+  badge.textContent = json.source === 'cache' ? 'Cached' : 'Live';
+
+  buildStats(json.repo || {}, allData, json.since || '', json.days || 90);
+  buildCharts(allData.slice(0, 10));
+  buildTableHeader();
+  buildTierFilter();
+  renderTable();
+  show('content');
+}
+
+function loadData(forceRefresh = false) {
+  show('loading');
+  setProgress(0, 'Connecting…');
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+
+  const topN = document.getElementById('top-n-select').value;
+  const days = document.getElementById('days-select').value;
+  const url = `/api/v1/contributors/analyze/stream?top_n=${topN}&days=${days}${forceRefresh ? '&refresh=true' : ''}`;
+
+  const es = new EventSource(url);
+
+  es.addEventListener('progress', e => {
+    const d = JSON.parse(e.data);
+    setProgress(d.percent, d.message);
+  });
+
+  es.addEventListener('result', e => {
+    es.close();
+    btn.disabled = false;
+    try {
+      renderResult(JSON.parse(e.data));
+    } catch (err) {
+      document.getElementById('error-msg').textContent = err.message;
+      show('error');
+    }
+  });
+
+  es.addEventListener('error', e => {
+    es.close();
+    btn.disabled = false;
+    const msg = e.data ? JSON.parse(e.data).message : 'Connection lost';
+    document.getElementById('error-msg').textContent = msg;
+    show('error');
+  });
+
+  es.onerror = () => {
+    es.close();
+    btn.disabled = false;
+    document.getElementById('error-msg').textContent = 'Stream connection failed';
+    show('error');
+  };
+}
+
+function show(panel) {
+  ['loading','error','content'].forEach(id => {
+    const el = document.getElementById(id);
+    if (id === 'loading' || id === 'error') el.classList.toggle('show', id === panel);
+    else el.style.display = id === panel ? 'block' : 'none';
+  });
+}
+
+function fmt(n) {
+  if (n === undefined || n === null) return '—';
+  if (typeof n === 'string') return n;
+  return Number(n).toLocaleString(undefined, { maximumFractionDigits: 1 });
+}
+
+document.getElementById('top-n-select').addEventListener('change', () => loadData(false));
+document.getElementById('days-select').addEventListener('change', () => loadData(false));
+loadData(false);
+</script>
+</body>
+</html>
