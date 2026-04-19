@@ -1,25 +1,31 @@
 # Weave Impact
 
-A self-hosted contributor analytics dashboard that measures **review influence** across a GitHub repository. Instead of counting commits or lines of code, Weave Impact surfaces the engineers who elevate the quality of everyone else's work through thoughtful, substantive code review.
+A self-hosted contributor analytics dashboard that measures **impact** across a GitHub repository — who ships the most, fixes the most bugs, and closes the most issues — surfaced in a real-time dark-mode dashboard.
 
-Built with FastAPI, async parallel fetching from the GitHub REST API, and a single-page dark-mode dashboard.
+Built with FastAPI, async parallel fetching from the GitHub Search API, and a single-page dark-mode dashboard.
 
 ---
 
 ## How contributors are scored
 
-Weave Impact uses a single scoring axis called **Knowledge Sharer**, composed of two signals:
+### Impact Score
 
-| Signal | Points |
+```
+impact = bug_fixes × 3.0 + prs_merged × 1.0 + issues_closed × 0.5
+```
+
+| Signal | Weight |
 |---|---|
-| Meaningful review comment (> 30 chars, non-trivial) | × 1.5 |
-| Cross-subsystem PR review (files in 2+ top-level dirs) | × 5.0 |
+| Bug fix merged | × 3.0 |
+| PR merged | × 1.0 |
+| Issue closed | × 0.5 |
 
-**What "meaningful" means:** a comment longer than 30 characters that is not a stock phrase like `LGTM`, `+1`, `looks good`, `approved`, or similar. The threshold filters rubber-stamp approvals so only comments that carry actual substance — a bug spotted, an alternative proposed, an edge case raised — contribute to the score.
+### Bug Crusher
 
-**What "cross-subsystem" means:** when a reviewer leaves comments on files that span two or more top-level directories in the same PR (e.g. both `frontend/` and `posthog/`), it signals broad architectural awareness. This is rare and highly valuable, so it carries the largest weight.
+A merged PR counts as a bug fix when **either** condition is true:
 
-**Self-reviews are excluded.** A PR author's own comments on their PR do not count.
+- The PR carries a **`bug`** label
+- The PR title starts with `fix:` or `fix!`, or contains the word `fix`
 
 **Bots are excluded.** Accounts with a `[bot]` suffix, type `Bot`, or known automation names (dependabot, renovate, github-actions, snyk-bot, codecov…) are filtered at every data ingestion point.
 
@@ -42,34 +48,30 @@ weave_impact/
 ├── app/
 │   ├── api/v1/endpoints/      # FastAPI route handlers (SSE stream + JSON)
 │   ├── application/use_cases/ # Orchestration: fetch → aggregate → score
-│   ├── domain/
-│   │   ├── contributors/      # Core entities (Contributor, KnowledgeSharerActivity…)
-│   │   └── scoring/           # ImpactScore, ImpactScoringService
-│   ├── infrastructure/github/ # Async GitHub REST client, parallel pagination
-│   ├── core/                  # Config (pydantic-settings), in-memory cache
+│   ├── infrastructure/github/ # Async GitHub Search API client
+│   ├── core/                  # Config (pydantic-settings), in-memory TTL cache
 │   └── presentation/static/  # Single-page dashboard (vanilla JS + Chart.js)
-├── run.py                     # Entry point
+├── run.py                     # Entry point — reads $PORT for Render compatibility
 ├── .env.example
 └── requirements.txt
 ```
-
-The design follows Domain-Driven Design layering: the domain layer has no external dependencies, the infrastructure layer implements GitHub I/O, and the application layer wires them together.
 
 ---
 
 ## GitHub API usage
 
-The service calls three GitHub REST v3 endpoints per analysis run:
+The service makes **at most 11 requests** per analysis run:
 
-| Endpoint | Purpose |
+| Request | Purpose |
 |---|---|
-| `GET /repos/:owner/:repo/contributors` | Avatar URLs and login metadata |
-| `GET /repos/:owner/:repo/pulls` | PR authors, merge status |
-| `GET /repos/:owner/:repo/pulls/comments` | Review comment bodies and file paths |
+| `GET /repos/:owner/:repo` | Repo metadata (stars, language) |
+| `GET /search/issues?q=repo:…+created:>=DATE` (≤ 10 pages) | PRs and issues in one combined query |
 
-Page 1 of each endpoint is fetched first to read the `Link` header and discover the total page count. All remaining pages are then fetched concurrently with `asyncio.gather`. A semaphore (`asyncio.Semaphore(8)`) keeps concurrent requests under GitHub's secondary rate limit.
+The Search API returns both PRs (identified by the presence of a `pull_request` key) and issues in a single paginated response. This is capped at **10 pages / 1 000 items** — GitHub's hard Search API limit.
 
-Results are cached in memory for 1 hour (`cachetools.TTLCache`). The dashboard serves cached data instantly on repeat visits; a **Refresh** button forces a live re-fetch.
+All pages are fetched concurrently with `asyncio.gather` under `asyncio.Semaphore(5)`. For result sets over 2 000 items the client falls back to sequential batches of 5 pages to stay within memory limits.
+
+Results are cached in memory for 1 hour (`cachetools.TTLCache`). A **Refresh** button forces a live re-fetch.
 
 ---
 
@@ -104,7 +106,7 @@ GITHUB_REPO=PostHog/posthog
 CACHE_TTL_SECONDS=3600
 ```
 
-`GITHUB_TOKEN` is optional but strongly recommended. Without it, GitHub's unauthenticated rate limit (60 req/hour) will be exhausted quickly on large repositories. With a token the limit is 5 000 req/hour.
+`GITHUB_TOKEN` is optional but strongly recommended. Without it, GitHub's unauthenticated rate limit (60 req/hour) will be exhausted quickly. With a token the limit is 5 000 req/hour.
 
 To generate a token: GitHub → Settings → Developer settings → Personal access tokens → Generate new token → select `public_repo`.
 
@@ -116,11 +118,11 @@ python run.py
 
 Open [http://localhost:8000](http://localhost:8000).
 
+The server reads the `PORT` environment variable automatically, so it works on Render and other PaaS platforms without changes.
+
 ---
 
 ## Configuration
-
-All settings are read exclusively from the `.env` file. System environment variables are intentionally ignored to avoid token conflicts when running alongside other tools.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -139,8 +141,16 @@ All settings are read exclusively from the `.env` file. System environment varia
 - **Tier filter pills** — click to filter the table by contributor tier
 - **Search** — instant filter by GitHub login
 - **Sortable columns** — click any column header to sort
-- **Charts** — top-10 impact bar chart, score breakdown, tier distribution donut
+- **Charts** — top-10 impact score bar, top-10 bug fixes bar, tier distribution donut
 - **Pagination** — 20 rows per page
+
+### Table columns
+
+| Column | Description |
+|---|---|
+| Impact | Total weighted score |
+| PRs Merged | Count of merged pull requests |
+| 🐛 Bug Fixes | Merged PRs matching the bug-fix criteria |
 
 ---
 
@@ -153,7 +163,7 @@ All settings are read exclusively from the `.env` file. System environment varia
 | `GET` | `/api/v1/contributors/rate-limit` | GitHub rate limit status |
 | `GET` | `/health` | Health check |
 
-Query parameters for both analyze endpoints:
+Query parameters:
 
 | Parameter | Type | Range | Default |
 |---|---|---|---|
@@ -161,17 +171,40 @@ Query parameters for both analyze endpoints:
 | `days` | int | 7–180 | 90 |
 | `refresh` | bool | — | false |
 
+### Response shape (per contributor)
+
+```json
+{
+  "rank": 1,
+  "login": "username",
+  "avatar_url": "https://avatars.githubusercontent.com/...",
+  "html_url": "https://github.com/username",
+  "tier": "Active Contributor",
+  "impact": {
+    "total": 21.0,
+    "bug_crusher_score": 9.0
+  },
+  "bug_crusher": {
+    "bug_fixes": 3,
+    "bug_crusher_score": 9.0
+  },
+  "prs_opened": 8,
+  "prs_merged": 6,
+  "issues_closed": 2
+}
+```
+
 ---
 
 ## Changing the target repository
 
-Update `GITHUB_REPO` in `.env` to any public (or private, if your token has access) repository:
+Update `GITHUB_REPO` in `.env`:
 
 ```env
 GITHUB_REPO=facebook/react
 ```
 
-Restart the server. The cache is in-memory so old results are automatically replaced on the next request.
+Restart the server. The in-memory cache is cleared automatically on restart.
 
 ---
 
