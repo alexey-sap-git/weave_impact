@@ -8,7 +8,6 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.application.use_cases.analyze_contributors import AnalyzeContributorsUseCase
 from app.core.cache import get_cached, set_cached
-from app.domain.scoring.service import ImpactScoringService
 from app.infrastructure.github.client import GitHubClient, GitHubRateLimitError
 
 router = APIRouter(prefix="/contributors", tags=["contributors"])
@@ -19,7 +18,7 @@ def _make_use_case() -> AnalyzeContributorsUseCase:
     from app.core.config import get_settings
     settings = get_settings()
     client = GitHubClient(token=settings.github_token, repo=settings.github_repo)
-    return AnalyzeContributorsUseCase(github=client, scoring=ImpactScoringService())
+    return AnalyzeContributorsUseCase(github=client)
 
 
 def _sse(event: str, data: dict) -> str:
@@ -35,7 +34,6 @@ async def analyze_stream(
     cache_key = f"analysis:{top_n}:{days}"
 
     async def event_stream() -> AsyncIterator[str]:
-        # Serve from cache immediately if available
         if not refresh:
             cached = get_cached(cache_key)
             if cached is not None:

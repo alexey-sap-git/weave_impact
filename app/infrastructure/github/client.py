@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 import re
 from datetime import datetime
 from typing import Any, Callable, Optional
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 _BASE = "https://api.github.com"
 _PER_PAGE = 100
-_MAX_CONCURRENT = 8  # stay under GitHub secondary rate limit
+_MAX_CONCURRENT = 5  # stay under GitHub secondary rate limit
 
 Progress = Callable[[int, str], None]
 
@@ -114,6 +115,61 @@ class GitHubClient:
             i for i in items
             if not (dt := _parse_dt(i.get("created_at", ""))) or dt >= since
         ]
+
+    async def fetch_pages_aggregate(
+        self,
+        path: str,
+        base_params: dict,
+        aggregate: Callable[[list], None],
+        since: Optional[datetime] = None,
+    ) -> None:
+        """Fetch all pages concurrently under Semaphore(5), call aggregate(items) per page—never accumulates a full list.
+        Memory guard: if > 20 pages (>2000 items), fetches in sequential batches of 5 pages."""
+        page1, last_page = await self._get_page(path, {**base_params, "page": 1})
+        aggregate(self._filter_since(page1, since))
+
+        if not last_page or last_page <= 1:
+            return
+
+        remaining = list(range(2, last_page + 1))
+        batch_size = 5 if last_page > 20 else len(remaining)
+        for i in range(0, len(remaining), batch_size):
+            pages = await asyncio.gather(*[
+                self._get_page(path, {**base_params, "page": p})
+                for p in remaining[i : i + batch_size]
+            ])
+            for items, _ in pages:
+                aggregate(self._filter_since(items, since))
+
+    async def search_issues_aggregate(
+        self,
+        query: str,
+        aggregate: Callable[[list], None],
+    ) -> int:
+        """Fetch GitHub Search API results, call aggregate(items) per page—never accumulates a full list.
+        Caps at 1000 items (GitHub Search API hard limit). Memory guard: batches 5 pages at a time if > 2000 total_count reported.
+        Returns total_count from the API."""
+        params = {"q": query, "per_page": 100, "page": 1, "sort": "created", "order": "desc"}
+        data = await self._get_json("/search/issues", params)
+        total_count: int = data.get("total_count", 0)
+        aggregate(data.get("items", []))
+
+        # GitHub Search API caps pagination at 1000 results (10 pages)
+        total_pages = min(math.ceil(total_count / 100), 10)
+        if total_pages <= 1:
+            return total_count
+
+        remaining = list(range(2, total_pages + 1))
+        batch_size = 5 if total_count > 2000 else len(remaining)
+        for i in range(0, len(remaining), batch_size):
+            results = await asyncio.gather(*[
+                self._get_json("/search/issues", {**params, "page": p})
+                for p in remaining[i : i + batch_size]
+            ])
+            for page_data in results:
+                aggregate(page_data.get("items", []))
+
+        return total_count
 
     async def get_contributors(self, max_pages: int = 3) -> list[dict]:
         base = {"per_page": _PER_PAGE, "anon": "false"}

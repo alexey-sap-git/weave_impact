@@ -377,81 +377,73 @@
   <div id="content" style="display:none">
 
     <!-- Methodology -->
+    <!-- Methodology -->
     <div class="chart-card" style="margin-bottom:28px">
       <div class="chart-title">How We Measure Impact</div>
 
-      <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:20px;max-width:860px">
-        Weave Impact ranks contributors by their <span style="color:var(--text);font-weight:600">Knowledge Sharer</span> score —
-        a measure of how much a contributor elevates the quality of other people's work through thoughtful code review.
-        Rather than rewarding raw commit volume or line counts, this model recognises the reviewers who catch real issues,
-        spread knowledge across different parts of the codebase, and help the whole team ship better software.
-      </p>
-
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:4px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
 
         <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:18px">
-          <div style="font-size:12px;font-weight:700;color:#5bc0de;margin-bottom:12px;text-transform:uppercase;letter-spacing:.6px">🔍 Meaningful Comments — × 1.5 each</div>
-          <p style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:10px">
-            A comment counts as meaningful when it contains more than 30 characters of actual text and is not a stock approval phrase.
-            The goal is to capture comments that carry substance: a bug spotted, an edge case raised, an alternative design proposed,
-            or a clear explanation of why something needs to change.
-          </p>
-          <div style="font-size:11px;color:var(--muted)">
-            Excluded phrases: <code style="color:#5bc0de">LGTM</code> <code style="color:#5bc0de">+1</code> <code style="color:#5bc0de">looks good</code>
-            <code style="color:#5bc0de">approved</code> <code style="color:#5bc0de">nice</code> <code style="color:#5bc0de">ok</code> and similar one-liners
+          <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:10px;text-transform:uppercase;letter-spacing:.6px">⚡ Impact Score</div>
+          <div style="font-family:monospace;font-size:13px;color:var(--text);background:var(--bg);border-radius:6px;padding:10px 14px;margin-bottom:12px;border:1px solid var(--border)">
+            bug_fixes × <span style="color:var(--accent);font-weight:700">3.0</span>
+            + prs_merged × <span style="color:#f5c842;font-weight:700">1.0</span>
+            + issues_closed × <span style="color:var(--accent3);font-weight:700">0.5</span>
           </div>
+          <p style="font-size:12px;color:var(--muted);line-height:1.7">
+            The overall score rewards contributors who ship meaningful fixes, land merged pull requests, and close issues.
+            Bug fixes carry the highest weight because they directly improve product quality.
+          </p>
         </div>
 
         <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:18px">
-          <div style="font-size:12px;font-weight:700;color:#1dc9a4;margin-bottom:12px;text-transform:uppercase;letter-spacing:.6px">🗺️ Cross-Subsystem Reviews — × 5.0 each</div>
-          <p style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:10px">
-            When a reviewer leaves comments on files that span two or more top-level directories in a single PR, it signals
-            broad architectural awareness — they can reason across the frontend, backend, infra, or data layers at once.
-            This is rare and highly valuable, so it carries the largest weight in the model.
+          <div style="font-size:12px;font-weight:700;color:var(--accent);margin-bottom:10px;text-transform:uppercase;letter-spacing:.6px">🐛 Bug Crusher</div>
+          <p style="font-size:12px;color:var(--muted);line-height:1.7;margin-bottom:12px">
+            A merged PR counts as a bug fix when <em>either</em> of these is true:
           </p>
-          <div style="font-size:11px;color:var(--muted)">
-            Example: commenting on both <code style="color:#1dc9a4">frontend/</code> and <code style="color:#1dc9a4">posthog/</code> files
-            in the same PR counts as one cross-subsystem review
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;align-items:flex-start;gap:8px">
+              <span style="color:var(--accent);font-weight:700;flex-shrink:0">Label</span>
+              <span style="font-size:12px;color:var(--muted)">the PR carries a <code style="color:var(--accent)">bug</code> label</span>
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:8px">
+              <span style="color:var(--accent);font-weight:700;flex-shrink:0">Title</span>
+              <span style="font-size:12px;color:var(--muted)">starts with <code style="color:var(--accent)">fix:</code> or <code style="color:var(--accent)">fix!</code>, or contains the word <code style="color:var(--accent)">fix</code></span>
+            </div>
           </div>
         </div>
 
       </div>
 
-      <div style="margin-top:20px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:18px">
-        <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:.6px">Tiers — Score Thresholds</div>
-        <div style="display:flex;gap:12px;flex-wrap:wrap">
-          <div style="text-align:center;padding:10px 18px;background:#2a1a3a;border:1px solid #5c2fa0;border-radius:8px">
-            <div style="font-size:13px;font-weight:700;color:#b47eff">Core Maintainer</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:3px">≥ 200 pts</div>
-          </div>
-          <div style="text-align:center;padding:10px 18px;background:#1a2a3a;border:1px solid #1a5a7a;border-radius:8px">
-            <div style="font-size:13px;font-weight:700;color:#5bc0de">Major Contributor</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:3px">≥ 80 pts</div>
-          </div>
-          <div style="text-align:center;padding:10px 18px;background:#1a3a2a;border:1px solid #1a6a4a;border-radius:8px">
-            <div style="font-size:13px;font-weight:700;color:#1dc9a4">Active Contributor</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:3px">≥ 20 pts</div>
-          </div>
-          <div style="text-align:center;padding:10px 18px;background:#2a2a1a;border:1px solid #6a5a10;border-radius:8px">
-            <div style="font-size:13px;font-weight:700;color:#f5c842">Contributor</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:3px">≥ 5 pts</div>
-          </div>
-          <div style="text-align:center;padding:10px 18px;background:#2a1a1a;border:1px solid #6a2a25;border-radius:8px">
-            <div style="font-size:13px;font-weight:700;color:#e8908a">Casual</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:3px">&lt; 5 pts</div>
-          </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+        <div style="text-align:center;padding:8px 16px;background:#2a1a3a;border:1px solid #5c2fa0;border-radius:8px">
+          <div style="font-size:12px;font-weight:700;color:#b47eff">Core Maintainer</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">≥ 200 pts</div>
+        </div>
+        <div style="text-align:center;padding:8px 16px;background:#1a2a3a;border:1px solid #1a5a7a;border-radius:8px">
+          <div style="font-size:12px;font-weight:700;color:#5bc0de">Major Contributor</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">≥ 80 pts</div>
+        </div>
+        <div style="text-align:center;padding:8px 16px;background:#1a3a2a;border:1px solid #1a6a4a;border-radius:8px">
+          <div style="font-size:12px;font-weight:700;color:#1dc9a4">Active Contributor</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">≥ 20 pts</div>
+        </div>
+        <div style="text-align:center;padding:8px 16px;background:#2a2a1a;border:1px solid #6a5a10;border-radius:8px">
+          <div style="font-size:12px;font-weight:700;color:#f5c842">Contributor</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">≥ 5 pts</div>
+        </div>
+        <div style="text-align:center;padding:8px 16px;background:#2a1a1a;border:1px solid #6a2a25;border-radius:8px">
+          <div style="font-size:12px;font-weight:700;color:#e8908a">Casual</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">&lt; 5 pts</div>
         </div>
       </div>
 
-      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);display:flex;gap:24px;flex-wrap:wrap">
+      <div style="padding-top:12px;border-top:1px solid var(--border);display:flex;gap:24px;flex-wrap:wrap">
         <div style="font-size:11px;color:var(--muted)">
-          <span style="font-weight:600;color:var(--text)">Data window:</span> PRs and review comments filtered to selected time range · self-reviews always excluded
+          <span style="font-weight:600;color:var(--text)">Source:</span> GitHub Search API · PRs and issues created within the selected window
         </div>
         <div style="font-size:11px;color:var(--muted)">
-          <span style="font-weight:600;color:var(--text)">Bots excluded:</span> <code>[bot]</code> suffix · known automation accounts (dependabot, renovate, github-actions…)
-        </div>
-        <div style="font-size:11px;color:var(--muted)">
-          <span style="font-weight:600;color:var(--text)">Source:</span> GitHub REST API v3 · <a href="https://github.com/PostHog/posthog" target="_blank" style="color:var(--accent)">PostHog/posthog</a>
+          <span style="font-weight:600;color:var(--text)">Bots excluded:</span> <code>[bot]</code> suffix · dependabot · renovate · github-actions and similar
         </div>
       </div>
     </div>
@@ -466,7 +458,7 @@
         <div class="chart-wrap"><canvas id="chart-impact"></canvas></div>
       </div>
       <div class="chart-card">
-        <div class="chart-title">Score Breakdown (Top 10)</div>
+        <div class="chart-title">Top 10 — Bug Fixes</div>
         <div class="chart-wrap"><canvas id="chart-breakdown"></canvas></div>
       </div>
     </div>
@@ -519,14 +511,13 @@ const TIER_COLORS = {
 };
 
 const COLS = [
-  { key: '#',                                    label: '#',            sortable: false, width: '48px' },
-  { key: 'login',                                label: 'Contributor',  sortable: true },
-  { key: 'tier',                                 label: 'Tier',         sortable: true },
-  { key: 'impact.total',                         label: 'Impact ▾',     sortable: true },
-  { key: 'bar',                                  label: '',             sortable: false },
-  { key: 'impact.knowledge_sharer_score',        label: '🔍 Knowledge Sharer', sortable: true },
-  { key: 'knowledge_sharer.meaningful_comments', label: 'Comments',     sortable: true },
-  { key: 'knowledge_sharer.cross_subsystem_prs', label: 'Cross-sys',    sortable: true },
+  { key: '#',                      label: '#',             sortable: false, width: '48px' },
+  { key: 'login',                  label: 'Contributor',   sortable: true },
+  { key: 'tier',                   label: 'Tier',          sortable: true },
+  { key: 'impact.total',           label: 'Impact ▾',      sortable: true },
+  { key: 'bar',                    label: '',              sortable: false },
+  { key: 'prs_merged',             label: 'PRs Merged',   sortable: true },
+  { key: 'bug_crusher.bug_fixes',  label: '🐛 Bug Fixes', sortable: true },
 ];
 
 // ── Charts ─────────────────────────────────────────────────────────────────
@@ -568,16 +559,19 @@ function buildCharts(top10) {
     options: chartOpts('Impact Score', false),
   });
 
-  // Stacked breakdown (knowledge sharer components)
+  // Bug fixes bar
   charts.breakdown = new Chart(document.getElementById('chart-breakdown'), {
     type: 'bar',
     data: {
       labels,
-      datasets: [
-        { label: '🔍 Knowledge Sharer', data: top10.map(d => d.impact.knowledge_sharer_score), backgroundColor: '#5bc0de', borderRadius: 3 },
-      ]
+      datasets: [{
+        data: top10.map(d => (d.bug_crusher || {}).bug_fixes || 0),
+        backgroundColor: palette,
+        borderRadius: 6,
+        borderSkipped: false,
+      }]
     },
-    options: { ...chartOpts('', false), plugins: { ...chartOpts('', false).plugins, legend: { display: true, labels: { color: '#8891b4', boxWidth: 12 } } } },
+    options: chartOpts('Bug Fixes', false),
   });
 
   // Tier donut
@@ -618,13 +612,13 @@ function darkAxis() {
 
 // ── Stats ──────────────────────────────────────────────────────────────────
 function buildStats(repo, contributors, since, days) {
-  const totalKsScore = contributors.reduce((s, c) => s + c.impact.knowledge_sharer_score, 0);
+  const totalBugFixes = contributors.reduce((s, c) => s + ((c.bug_crusher || {}).bug_fixes || 0), 0);
   const cards = [
-    { label: 'Repo Stars',         value: fmt(repo.stargazers_count),    sub: repo.language },
-    { label: 'Window',             value: `${days}d`,                    sub: `since ${since}` },
-    { label: 'Contributors',       value: fmt(contributors.length),      sub: 'active in window' },
-    { label: '🔍 Knowledge Score', value: fmt(totalKsScore),             sub: 'total' },
-    { label: 'Top Contributor',    value: contributors[0]?.login || '—', sub: `${fmt(contributors[0]?.impact.total)} pts` },
+    { label: 'Repo Stars',      value: fmt(repo.stargazers_count),    sub: repo.language },
+    { label: 'Window',          value: `${days}d`,                    sub: `since ${since}` },
+    { label: 'Contributors',    value: fmt(contributors.length),      sub: 'active in window' },
+    { label: '🐛 Bug Fixes',    value: fmt(totalBugFixes),            sub: 'total' },
+    { label: 'Top Contributor', value: contributors[0]?.login || '—', sub: `${fmt(contributors[0]?.impact.total)} pts` },
   ];
   document.getElementById('stat-grid').innerHTML = cards.map(c => `
     <div class="stat-card">
@@ -666,7 +660,6 @@ function renderTable() {
     const tc = TIER_COLORS[d.tier] || {};
     const rankClass = d.rank <= 3 ? `rank-${d.rank}` : '';
     const bc = d.bug_crusher || {};
-    const ks = d.knowledge_sharer || {};
     return `<tr>
       <td class="rank-cell ${rankClass}">${d.rank <= 3 ? ['🥇','🥈','🥉'][d.rank-1] : d.rank}</td>
       <td>
@@ -680,9 +673,8 @@ function renderTable() {
       <td class="bar-cell">
         <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
       </td>
-      <td class="num" style="color:#5bc0de;font-weight:600">${fmt(d.impact.knowledge_sharer_score)}</td>
-      <td class="num">${ks.meaningful_comments ?? 0}</td>
-      <td class="num" style="color:#1dc9a4">${ks.cross_subsystem_prs ?? 0}</td>
+      <td class="num">${d.prs_merged ?? 0}</td>
+      <td class="num" style="color:var(--accent);font-weight:600">${bc.bug_fixes ?? 0}</td>
     </tr>`;
   }).join('');
 

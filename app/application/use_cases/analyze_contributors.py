@@ -4,55 +4,68 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
-from app.domain.contributors.entities import (
-    Contributor,
-    ContributorProfile,
-    GitHubLogin,
-    KnowledgeSharerActivity,
-    PullRequestActivity,
-)
-from app.domain.scoring.entities import ImpactScore
-from app.domain.scoring.service import ImpactScoringService
 from app.infrastructure.github.client import GitHubClient
 
 logger = logging.getLogger(__name__)
 
 Progress = Callable[[int, str], None]
 
-_TRIVIAL_REVIEWS = {"lgtm", "looks good", "looks good to me", "approved", "+1", "👍", ":+1:", "nice", "great", "ok", "okay"}
-
 _BOT_SUFFIXES = ("[bot]", "-bot", "_bot")
-_BOT_NAMES = {"dependabot", "renovate", "codecov", "github-actions", "snyk-bot", "stale", "allcontributors"}
+_BOT_NAMES = {
+    "dependabot", "renovate", "codecov", "github-actions",
+    "snyk-bot", "stale", "allcontributors",
+}
 
 
 def _is_bot(login: str, user_type: str = "") -> bool:
     if user_type.lower() == "bot":
         return True
     low = login.lower()
-    if any(low.endswith(s) for s in _BOT_SUFFIXES):
-        return True
-    if any(low == name or low.startswith(name + "-") for name in _BOT_NAMES):
-        return True
-    return False
+    return (
+        any(low.endswith(s) for s in _BOT_SUFFIXES)
+        or any(low == name or low.startswith(name + "-") for name in _BOT_NAMES)
+    )
 
 
-def _is_meaningful_comment(body: str) -> bool:
-    text = (body or "").strip()
-    if len(text) < 30:
-        return False
-    return text.lower() not in _TRIVIAL_REVIEWS
+def _parse_dt(s: str) -> Optional[datetime]:
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
-def _top_dir(path: str) -> str:
-    """Extract top-level directory from a file path."""
-    parts = path.split("/")
-    return parts[0] if len(parts) > 1 else "__root__"
+def _is_bug_fix(item: dict) -> bool:
+    labels = {lbl.get("name", "").lower() for lbl in item.get("labels", [])}
+    title = item.get("title", "").lower()
+    return (
+        "bug" in labels
+        or title.startswith("fix:")
+        or title.startswith("fix!")
+        or "fix" in title
+    )
+
+
+def _total_score(prs_merged: int, bug_fixes: int, issues_closed: int) -> float:
+    return bug_fixes * 3.0 + prs_merged * 1.0 + issues_closed * 0.5
+
+
+def _tier(score: float) -> str:
+    if score >= 200:
+        return "Core Maintainer"
+    if score >= 80:
+        return "Major Contributor"
+    if score >= 20:
+        return "Active Contributor"
+    if score >= 5:
+        return "Contributor"
+    return "Casual"
 
 
 class AnalyzeContributorsUseCase:
-    def __init__(self, github: GitHubClient, scoring: ImpactScoringService):
+    def __init__(self, github: GitHubClient):
         self._github = github
-        self._scoring = scoring
 
     async def execute(
         self,
@@ -64,140 +77,124 @@ class AnalyzeContributorsUseCase:
             if progress:
                 progress(pct, msg)
 
-        since = datetime.now(timezone.utc) - timedelta(days=days)
-        logger.info("Analyzing contributors since %s (%d days)", since.date(), days)
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=days)
+        iso_cutoff = cutoff.strftime("%Y-%m-%d")
+        repo = self._github.repo
 
-        emit(5, "Fetching all data in parallel…")
-        (contributors_list, repo_info), (prs, review_comments) = await asyncio.gather(
-            asyncio.gather(
-                self._github.get_contributors(max_pages=3),
-                self._github.get_repo_info(),
-            ),
-            asyncio.gather(
-                self._github.get_pull_requests(since=since, state="all"),
-                self._github.get_review_comments(since=since),
+        logger.info("Analysis: %dd window since %s", days, iso_cutoff)
+
+        # ── Summary dicts — aggregated per page, no full lists stored ───────────
+        login_to_meta:  dict[str, dict] = {}
+        pr_summary:     dict[str, dict] = defaultdict(lambda: {"opened": 0, "merged": 0})
+        bug_summary:    dict[str, int]  = defaultdict(int)
+        issue_summary:  dict[str, int]  = defaultdict(int)
+
+        def _capture_meta(user: dict) -> None:
+            login = user.get("login", "")
+            if login and login not in login_to_meta:
+                login_to_meta[login] = {
+                    "avatar_url": user.get("avatar_url", f"https://avatars.githubusercontent.com/{login}"),
+                    "html_url":   user.get("html_url",   f"https://github.com/{login}"),
+                }
+
+        def _agg_item(items: list) -> None:
+            """Single aggregator for combined PR + Issue Search results."""
+            for item in items:
+                user = item.get("user") or {}
+                login = user.get("login", "")
+                if not login or _is_bot(login, user.get("type", "")):
+                    continue
+
+                pr_data = item.get("pull_request")
+
+                if pr_data:
+                    # ── Pull Request ──────────────────────────────────────────
+                    created = _parse_dt(item.get("created_at", ""))
+                    if not created or created < cutoff:
+                        continue
+                    _capture_meta(user)
+                    is_merged = bool(pr_data.get("merged_at"))
+                    pr_summary[login]["opened"] += 1
+                    if is_merged:
+                        pr_summary[login]["merged"] += 1
+                        if _is_bug_fix(item):
+                            bug_summary[login] += 1
+
+                elif item.get("state") == "closed":
+                    # ── Closed Issue ──────────────────────────────────────────
+                    closed_at = _parse_dt(item.get("closed_at", ""))
+                    if not closed_at or closed_at < cutoff:
+                        continue
+                    _capture_meta(user)
+                    issue_summary[login] += 1
+
+        emit(5, "Fetching via Search API (≤10 pages)…")
+
+        # One combined search query — max 10 pages = 1000 items.
+        # PRs and issues are returned together; _agg_item splits by pull_request key.
+        repo_info, _ = await asyncio.gather(
+            self._github.get_repo_info(),
+            self._github.search_issues_aggregate(
+                f"repo:{repo} created:>={iso_cutoff}",
+                _agg_item,
             ),
         )
-        emit(70, f"Got {len(prs)} PRs · {len(review_comments)} review comments")
 
-        login_to_meta = {
-            c["login"]: c for c in contributors_list
-            if not _is_bot(c["login"], c.get("type", ""))
-        }
+        emit(70, (
+            f"Processed {len(pr_summary)} PR authors · "
+            f"{len(issue_summary)} issue closers · "
+            f"{sum(bug_summary.values())} bug fixes"
+        ))
+        emit(80, "Computing scores…")
 
-        # ── PR activity + build pr_url→author map ─────────────────────────────
-        pr_map: dict[str, PullRequestActivity] = defaultdict(PullRequestActivity)
-        pr_url_to_author: dict[str, str] = {}
+        all_logins = set(pr_summary) | set(bug_summary) | set(issue_summary)
 
-        for pr in prs:
-            user = pr.get("user")
-            if not user:
-                continue
-            login = user["login"]
-            if _is_bot(login, user.get("type", "")):
-                continue
-            act = pr_map[login]
-            act.opened += 1
-            if pr.get("merged_at"):
-                act.merged += 1
-            pr_url_to_author[pr.get("url", "")] = login
-
-        # ── Knowledge Sharer axis ─────────────────────────────────────────────
-        reviewer_pr_dirs: dict[str, dict[str, set]] = defaultdict(lambda: defaultdict(set))
-        reviewer_meaningful: dict[str, int] = defaultdict(int)
-
-        for comment in review_comments:
-            user = comment.get("user")
-            if not user:
-                continue
-            login = user["login"]
-            if _is_bot(login, user.get("type", "")):
-                continue
-            body = comment.get("body", "")
-            path = comment.get("path", "")
-            pr_url = comment.get("pull_request_url", "")
-
-            # Skip self-reviews
-            if pr_url and pr_url_to_author.get(pr_url) == login:
-                continue
-
-            if _is_meaningful_comment(body):
-                reviewer_meaningful[login] += 1
-
-            if path and pr_url:
-                reviewer_pr_dirs[login][pr_url].add(_top_dir(path))
-
-        ks_map: dict[str, KnowledgeSharerActivity] = {}
-        all_reviewers = set(reviewer_pr_dirs.keys()) | set(reviewer_meaningful.keys())
-        for login in all_reviewers:
-            pr_dirs = reviewer_pr_dirs.get(login, {})
-            cross_subsystem = sum(1 for dirs in pr_dirs.values() if len(dirs) >= 2)
-            ks_map[login] = KnowledgeSharerActivity(
-                meaningful_comments=reviewer_meaningful.get(login, 0),
-                cross_subsystem_prs=cross_subsystem,
+        def _score(login: str) -> float:
+            return _total_score(
+                pr_summary.get(login, {}).get("merged", 0),
+                bug_summary.get(login, 0),
+                issue_summary.get(login, 0),
             )
 
-        emit(80, "Computing impact scores…")
+        top_logins = sorted(all_logins, key=_score, reverse=True)[:top_n]
 
-        # ── Build contributor objects ──────────────────────────────────────────
-        all_logins = set(pr_map.keys()) | set(ks_map.keys())
-        sorted_logins = sorted(
-            all_logins,
-            key=lambda l: ks_map[l].total_weighted if l in ks_map else 0,
-            reverse=True,
-        )[:top_n]
+        results = []
+        for rank, login in enumerate(top_logins, 1):
+            meta        = login_to_meta.get(login, {})
+            pr          = pr_summary.get(login, {})
+            bug_fixes   = bug_summary.get(login, 0)
+            iss_closed  = issue_summary.get(login, 0)
+            score       = _score(login)
+            bug_score   = round(bug_fixes * 3.0, 2)
 
-        contributors: list[Contributor] = []
-        for login in sorted_logins:
-            meta = login_to_meta.get(login, {})
-            try:
-                profile = ContributorProfile(
-                    login=GitHubLogin(login),
-                    avatar_url=meta.get("avatar_url", f"https://avatars.githubusercontent.com/{login}"),
-                    html_url=meta.get("html_url", f"https://github.com/{login}"),
-                )
-            except ValueError:
-                continue
-            contributors.append(Contributor(
-                profile=profile,
-                pr_activity=pr_map.get(login, PullRequestActivity()),
-                knowledge_sharer=ks_map.get(login, KnowledgeSharerActivity()),
-            ))
+            results.append({
+                "rank":       rank,
+                "login":      login,
+                "avatar_url": meta.get("avatar_url", f"https://avatars.githubusercontent.com/{login}"),
+                "html_url":   meta.get("html_url",   f"https://github.com/{login}"),
+                "tier":       _tier(score),
+                "impact": {
+                    "total":             round(score, 2),
+                    "bug_crusher_score": bug_score,
+                },
+                # bug_crusher — always present even if 0
+                "bug_crusher": {
+                    "bug_fixes":        bug_fixes,
+                    "bug_crusher_score": bug_score,
+                },
+                # raw counts for table / charts
+                "prs_opened":    pr.get("opened", 0),
+                "prs_merged":    pr.get("merged", 0),
+                "issues_closed": iss_closed,
+            })
 
-        scores = [self._scoring.calculate(c) for c in contributors]
-        ranked = self._scoring.rank(scores)
-        contributor_map = {c.login: c for c in contributors}
-        emit(95, f"Ranked {len(ranked)} contributors — done!")
+        emit(95, f"Ranked {len(results)} contributors — done!")
 
         return {
-            "repo": repo_info,
-            "since": since.date().isoformat(),
-            "days": days,
-            "total_analyzed": len(ranked),
-            "contributors": [
-                _serialize(ranked[i], contributor_map[ranked[i].login])
-                for i in range(len(ranked))
-                if ranked[i].login in contributor_map
-            ],
+            "repo":            repo_info,
+            "since":           iso_cutoff,   # top-level — frontend reads json.since
+            "days":            days,          # top-level — frontend reads json.days
+            "total_analyzed":  len(results),
+            "contributors":    results,
         }
-
-
-def _serialize(score: ImpactScore, contributor: Contributor) -> dict:
-    pr = contributor.pr_activity
-    ks = contributor.knowledge_sharer
-    return {
-        "rank": score.rank,
-        "login": score.login,
-        "avatar_url": contributor.profile.avatar_url,
-        "html_url": contributor.profile.html_url,
-        "tier": score.tier,
-        "impact": {
-            "total": score.total,
-            "knowledge_sharer_score": score.knowledge_sharer_score,
-        },
-        "knowledge_sharer": {
-            "meaningful_comments": ks.meaningful_comments,
-            "cross_subsystem_prs": ks.cross_subsystem_prs,
-            "weighted_score": round(ks.total_weighted, 2),
-        },
-    }
